@@ -1,0 +1,7 @@
+/home/pi/Desktop/v4l2_rtsp_server/build/CMakeFiles/v4l2_rtsp_server.dir
+/home/pi/Desktop/v4l2_rtsp_server/build/CMakeFiles/edit_cache.dir
+/home/pi/Desktop/v4l2_rtsp_server/build/CMakeFiles/rebuild_cache.dir
+/home/pi/Desktop/v4l2_rtsp_server/build/CMakeFiles/list_install_components.dir
+/home/pi/Desktop/v4l2_rtsp_server/build/CMakeFiles/install.dir
+/home/pi/Desktop/v4l2_rtsp_server/build/CMakeFiles/install/local.dir
+/home/pi/Desktop/v4l2_rtsp_server/build/CMakeFiles/install/strip.dir
