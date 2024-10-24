@@ -18,18 +18,27 @@ This project implements an RTSP server that captures video from a V4L2 (Video4Li
 
 ## Building the Project
 
-1. Clone the repository:   ```
+1. Clone the repository:  
+   ```
    git clone https://github.com/ChouChou-Justin/v4l2_rtsp_server.git
-   cd v4l2_rtsp_server   ```
+   cd v4l2_rtsp_server
+   ```
 
-2. Create a build directory and navigate to it:   ```
+2. Create a build directory and navigate to it:  
+   ```
    mkdir build
-   cd build   ```
+   cd build   
+   ```
 
-3. Run CMake and build the project:   ```
+3. Run CMake and build the project:   
+   ```
    cmake ..
-   make   ```
+   make   
+   ```
 
 ## Usage
 
 After building the project, you can run the server with:
+    ```
+    ./v4l2_rtsp_server
+    ```
