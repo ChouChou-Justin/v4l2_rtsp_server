@@ -3,8 +3,14 @@
 #include <iostream>
 
 v4l2Capture::v4l2Capture(const char* device) 
-    : fd(-1), buffers(nullptr), n_buffers(0), 
-      sps(nullptr), pps(nullptr), spsSize(0), ppsSize(0), spsPpsExtracted(false) {
+    : fd(-1)
+    , buffers(nullptr)
+    , n_buffers(0)
+    , sps(nullptr)
+    , pps(nullptr)
+    , spsSize(0)
+    , ppsSize(0)
+    , spsPpsExtracted(false) {
     fd = open(device, O_RDWR);
     if (fd == -1) {
         logMessage("Cannot open device " + std::string(device) + ": " + std::string(strerror(errno)));
@@ -164,7 +170,7 @@ bool v4l2Capture::stopCapture() {
         logMessage("VIDIOC_STREAMOFF error: " + std::string(strerror(errno)));
         return false;
     }
-    logMessage("Successfully stopped capture.");
+    logMessage("Successfully stop capture.");
     return true;
 }
 

@@ -41,10 +41,10 @@ RTPSink* v4l2H264MediaSubsession::createNewRTPSink(Groupsock* rtpGroupsock, unsi
 }
 
 void v4l2H264MediaSubsession::deleteStream(unsigned clientSessionId, void*& streamToken) {
-    logMessage("Deleting stream for client session: " + std::to_string(clientSessionId));
+    logMessage("Deleting video stream for client session: " + std::to_string(clientSessionId));
     OnDemandServerMediaSubsession::deleteStream(clientSessionId, streamToken);
     if (!fCapture->reset()) {
-        envir() << "Failed to reset capture device. Attempting to continue without reset.\n";
+        envir() << "Failed to reset V4L2 capture device. Attempting to continue without reset.\n";
     }
 }
 

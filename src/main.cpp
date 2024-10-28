@@ -14,7 +14,7 @@ int main(int argc, char** argv) {
     // Set up signal handler
     std::signal(SIGINT, signalHandler);
 
-    // Initialize the LIVE555 environment
+    // Initialize and create LIVE555 environment
     TaskScheduler* scheduler = BasicTaskScheduler::createNew();
     UsageEnvironment* env = BasicUsageEnvironment::createNew(*scheduler);
 

@@ -23,6 +23,7 @@ public:
     bool initialize();
     bool startCapture();
     bool stopCapture();
+    bool reset();
     unsigned char* getFrame(size_t& length);
     unsigned char* getFrameWithoutStartCode(size_t& length);
     void releaseFrame();
@@ -34,7 +35,6 @@ public:
     unsigned getPPSSize() const { return ppsSize; }
     bool hasSpsPps() const { return spsPpsExtracted; }
 
-    bool reset();
     int getFd() const { return fd; }
 private:
     int fd;
