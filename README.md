@@ -44,4 +44,3 @@ After building the project, you can run the server with:
     ./v4l2_rtsp_server
     ```
 
-# v4l2_rtsp_server
