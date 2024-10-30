@@ -57,16 +57,16 @@ bool v4l2Capture::initialize() {
     // Set H.264 related controls
     struct v4l2_control control;
     
-    // Set bitrate to 2 Mbps
+    // Set bitrate 
     control.id = V4L2_CID_MPEG_VIDEO_BITRATE;
-    control.value = 1000000;
+    control.value = VIDEO_BITRATE;
     if (ioctl(fd, VIDIOC_S_CTRL, &control) == -1) {
         logMessage("Failed to set bitrate: " + std::string(strerror(errno)));
     }
 
     // Set GOP size to 60 (2 seconds at 30 fps)
     control.id = V4L2_CID_MPEG_VIDEO_H264_I_PERIOD;
-    control.value = 60;
+    control.value = GOP_SIZE;
     if (ioctl(fd, VIDIOC_S_CTRL, &control) == -1) {
         logMessage("Failed to set GOP size: " + std::string(strerror(errno)));
     }
@@ -81,15 +81,15 @@ bool v4l2Capture::initialize() {
     // Set the frame rate
     struct v4l2_streamparm streamparm = {0};
     streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    streamparm.parm.capture.timeperframe.numerator = 1;
-    streamparm.parm.capture.timeperframe.denominator = 15;
+    streamparm.parm.capture.timeperframe.numerator = FRAME_RATE_NUMERATOR;
+    streamparm.parm.capture.timeperframe.denominator = FRAME_RATE_DENOMINATOR;
     if (ioctl(fd, VIDIOC_S_PARM, &streamparm) == -1) {
         logMessage("Failed to set frame rate: " + std::string(strerror(errno)));
     }
 
     // Set rotation (if needed)
     control.id = V4L2_CID_ROTATE;
-    control.value = 180;
+    control.value = ROTATION_DEGREES;
     if (ioctl(fd, VIDIOC_S_CTRL, &control) == -1) {
         logMessage("Failed to set rotation: " + std::string(strerror(errno)));
     }
