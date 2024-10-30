@@ -22,7 +22,7 @@ find_library(BASIC_USAGE_ENVIRONMENT_LIB BasicUsageEnvironment PATHS ${LIVE555_D
 find_library(GROUPSOCK_LIB groupsock PATHS ${LIVE555_DIR}/groupsock)
 find_library(LIVEMEDIA_LIB liveMedia PATHS ${LIVE555_DIR}/liveMedia)
 
-# Find OpenSSL
+# Find OpenSSL package
 find_package(OpenSSL REQUIRED)
 
 # Find Threads package
