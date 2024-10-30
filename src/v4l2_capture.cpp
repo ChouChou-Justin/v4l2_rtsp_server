@@ -94,7 +94,37 @@ bool v4l2Capture::initialize() {
         logMessage("Failed to set rotation: " + std::string(strerror(errno)));
     }
 
-    return initializeMmap();
+    // Initialize mmap first
+    if (!initializeMmap()) {
+        logMessage("Failed to initialize memory mapping.");
+        return false;
+    }
+
+    // Start capture temporarily to get SPS/PPS
+    if (!startCapture()) {
+        logMessage("Failed to start capture for SPS/PPS extraction.");
+        return false;
+    }
+
+    // Give some time for the device to start streaming
+    usleep(200000);  // 200ms
+
+    // Try to extract SPS/PPS
+    bool spsPpsSuccess = extractSpsPpsImmediate();
+    
+    if (!spsPpsSuccess) {
+        logMessage("Failed to extract SPS/PPS immediately, falling back to regular extraction.");
+        spsPpsSuccess = extractSpsPps();  // Try regular extraction as fallback
+    }
+    
+    // Stop capture until actually needed
+    stopCapture();
+
+    if (!spsPpsSuccess) {
+        logMessage("Failed to extract SPS/PPS, but memory mapping is successful.");
+    }
+
+    return true;
 }
 
 bool v4l2Capture::initializeMmap() {
@@ -193,13 +223,6 @@ void v4l2Capture::updateFrameInfo(const v4l2_buffer& buf) {
     currentFrameInfo.valid = true;
 }
 
-double v4l2Capture::getFrameDelta(const timeval& previous) const {
-    double current_sec = currentFrameInfo.timestamp.tv_sec + 
-                        (currentFrameInfo.timestamp.tv_usec / 1000000.0);
-    double prev_sec = previous.tv_sec + (previous.tv_usec / 1000000.0);
-    return current_sec - prev_sec;
-}
-
 unsigned char* v4l2Capture::getFrame(size_t& length) {
     memset(&current_buf, 0, sizeof(current_buf));
     current_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -295,10 +318,12 @@ bool v4l2Capture::extractSpsPps() {
                     spsSize = nalUnitSize;
                     sps = new uint8_t[spsSize];
                     memcpy(sps, frame + offset, spsSize);
+                    // logMessage("Found SPS, size: " + std::to_string(spsSize));
                 } else if (nalType == 8 && pps == nullptr) {
                     ppsSize = nalUnitSize;
                     pps = new uint8_t[ppsSize];
                     memcpy(pps, frame + offset, ppsSize);
+                    // logMessage("Found PPS, size: " + std::to_string(ppsSize));
                 }
 
                 offset = nextNalOffset;
@@ -317,5 +342,112 @@ bool v4l2Capture::extractSpsPps() {
     }
 
     std::cerr << "Failed to extract SPS and PPS within " << MAX_ATTEMPTS << " attempts." << std::endl;
+    return false;
+}
+
+bool v4l2Capture::extractSpsPpsImmediate() {
+    const int MAX_IMMEDIATE_ATTEMPTS = 10;  // Increased from 5
+    const int WAIT_MICROSECONDS = 200000;   // Increased to 200ms
+    
+    // Force keyframe request
+    struct v4l2_control control;
+    control.id = V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME;
+    if (ioctl(fd, VIDIOC_S_CTRL, &control) == -1) {
+        logMessage("Failed to force keyframe: " + std::string(strerror(errno)));
+    }
+    
+    // Wait a bit for the keyframe to be generated
+    usleep(WAIT_MICROSECONDS);
+    
+    for (int i = 0; i < MAX_IMMEDIATE_ATTEMPTS; ++i) {
+        logMessage("Attempting immediate SPS/PPS extraction: attempt " + std::to_string(i + 1));
+        
+        size_t frameSize;
+        unsigned char* frame = getFrame(frameSize);
+        
+        if (frame == nullptr) {
+            logMessage("Failed to get frame on attempt " + std::to_string(i + 1));
+            continue;
+        }
+
+        // Debug log the first few bytes of the frame
+        std::string frameStart = "Frame starts with: ";
+        for (int j = 0; j < std::min(16, (int)frameSize); ++j) {
+            char hex[4];
+            snprintf(hex, sizeof(hex), "%02X ", frame[j]);
+            frameStart += hex;
+        }
+        // logMessage(frameStart);
+        
+        // Look for NAL units and process them
+        size_t offset = 0;
+        bool foundSPS = false;
+        bool foundPPS = false;
+        
+        while (offset + 4 < frameSize) {
+            // Look for NAL unit start code
+            if (frame[offset] == 0x00 && frame[offset+1] == 0x00 && 
+                ((frame[offset+2] == 0x00 && frame[offset+3] == 0x01) ||
+                 (frame[offset+2] == 0x01))) {
+                
+                // Calculate start code size
+                size_t startCodeSize = (frame[offset+2] == 0x00) ? 4 : 3;
+                size_t nalStart = offset + startCodeSize;
+                
+                if (nalStart >= frameSize) break;
+                
+                // Get NAL type
+                uint8_t nalType = frame[nalStart] & 0x1F;
+                // logMessage("Found NAL type: " + std::to_string(nalType));
+                
+                // Find next NAL unit or end of frame
+                size_t nextNalOffset = nalStart;
+                while (nextNalOffset + 3 < frameSize) {
+                    if (frame[nextNalOffset] == 0x00 && frame[nextNalOffset+1] == 0x00 && 
+                        (frame[nextNalOffset+2] == 0x01 || 
+                         (nextNalOffset + 3 < frameSize && frame[nextNalOffset+2] == 0x00 && 
+                          frame[nextNalOffset+3] == 0x01))) {
+                        break;
+                    }
+                    nextNalOffset++;
+                }
+                
+                size_t nalUnitSize = nextNalOffset - nalStart;
+                
+                if (nalType == 7 && !foundSPS) {  // SPS
+                    delete[] sps;  // Delete old SPS if exists
+                    spsSize = nalUnitSize;
+                    sps = new uint8_t[spsSize];
+                    memcpy(sps, frame + nalStart, spsSize);
+                    foundSPS = true;
+                    // logMessage("Found SPS, size: " + std::to_string(spsSize));
+                } else if (nalType == 8 && !foundPPS) {  // PPS
+                    delete[] pps;  // Delete old PPS if exists
+                    ppsSize = nalUnitSize;
+                    pps = new uint8_t[ppsSize];
+                    memcpy(pps, frame + nalStart, ppsSize);
+                    foundPPS = true;
+                    // logMessage("Found PPS, size: " + std::to_string(ppsSize));
+                }
+                
+                offset = nextNalOffset;
+            } else {
+                offset++;
+            }
+        }
+        
+        releaseFrame();
+        
+        if (foundSPS && foundPPS) {
+            spsPpsExtracted = true;
+            logMessage("Successfully extracted SPS and PPS on attempt " + std::to_string(i + 1));
+            return true;
+        }
+        
+        // Wait before next attempt
+        usleep(WAIT_MICROSECONDS);
+    }
+    
+    logMessage("Failed to extract SPS/PPS during immediate initialization");
     return false;
 }

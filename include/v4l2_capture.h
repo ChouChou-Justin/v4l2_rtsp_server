@@ -37,6 +37,7 @@ public:
     void releaseFrame();
 
     bool extractSpsPps();
+    bool extractSpsPpsImmediate();
     bool hasSpsPps() const { return spsPpsExtracted; }
     uint8_t* getSPS() const { return sps; }
     uint8_t* getPPS() const { return pps; }
@@ -50,9 +51,6 @@ public:
     bool isFrameValid() const { return currentFrameInfo.valid; }
     uint32_t getSequence() const { return currentFrameInfo.sequence; }
     const timeval& getTimestamp() const { return currentFrameInfo.timestamp; }
-    
-    // Helper method to get time difference between frames
-    double getFrameDelta(const timeval& previous) const;
 
 private:
     int fd;

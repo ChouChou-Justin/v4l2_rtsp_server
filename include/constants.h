@@ -12,11 +12,10 @@
 // H.264 encoding settings
 #define VIDEO_BITRATE 1000000    // 1 Mbps
 #define GOP_SIZE 60              // GOP size (2 seconds at 30 fps)
-#define H264_PROFILE V4L2_MPEG_VIDEO_H264_PROFILE_HIGH
 
 // Frame rate settings
 #define FRAME_RATE_NUMERATOR 1
-#define FRAME_RATE_DENOMINATOR 15  // 15 fps
+#define FRAME_RATE_DENOMINATOR 15  // 30 fps
 
 // Camera settings
 #define ROTATION_DEGREES 180
