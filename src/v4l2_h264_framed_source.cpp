@@ -15,16 +15,23 @@ v4l2H264FramedSource::~v4l2H264FramedSource() {
 }
 
 void v4l2H264FramedSource::doGetNextFrame() {
+    static unsigned long frameCount = 0;
+    static struct timeval lastFrameTime = {0, 0};
+
     size_t length;
     unsigned char* frame = fCapture->getFrameWithoutStartCode(length);
 
-    if (frame == nullptr) {
-        envir() << "Failed to get frame\n";
+    if (frame == nullptr || !fCapture->isFrameValid()) {
+        envir() << "Failed to get frame or invalid frame\n";
         handleClosure();
         return;
     }
 
     if (length > fMaxSize) {
+        // Only log significant truncations
+        if (length > fMaxSize * 2) {
+            logMessage("Significant frame truncation: " + std::to_string(length - fMaxSize) + " bytes");
+        }
         fFrameSize = fMaxSize;
         fNumTruncatedBytes = length - fMaxSize;
     } else {
@@ -33,10 +40,17 @@ void v4l2H264FramedSource::doGetNextFrame() {
     }
 
     memcpy(fTo, frame, fFrameSize);
+    gettimeofday(&lastFrameTime, NULL);
+
+    // Set presentation time
+    fPresentationTime = lastFrameTime;
+    fDurationInMicroseconds = 33333; // ~30fps
+
+    frameCount++;
+    if (frameCount % 30 == 0) {
+        logMessage("Processed " + std::to_string(frameCount) + " frames");
+    }
+
     fCapture->releaseFrame();
-
-    gettimeofday(&fPresentationTime, NULL);
-    fDurationInMicroseconds = 0;
-
     FramedSource::afterGetting(this);
 }

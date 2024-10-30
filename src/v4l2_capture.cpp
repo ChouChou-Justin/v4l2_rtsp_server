@@ -59,14 +59,14 @@ bool v4l2Capture::initialize() {
     
     // Set bitrate to 2 Mbps
     control.id = V4L2_CID_MPEG_VIDEO_BITRATE;
-    control.value = 2000000;
+    control.value = 1000000;
     if (ioctl(fd, VIDIOC_S_CTRL, &control) == -1) {
         logMessage("Failed to set bitrate: " + std::string(strerror(errno)));
     }
 
-    // Set GOP size to 30 (1 second at 30 fps)
+    // Set GOP size to 60 (2 seconds at 30 fps)
     control.id = V4L2_CID_MPEG_VIDEO_H264_I_PERIOD;
-    control.value = 30;
+    control.value = 60;
     if (ioctl(fd, VIDIOC_S_CTRL, &control) == -1) {
         logMessage("Failed to set GOP size: " + std::string(strerror(errno)));
     }
@@ -82,7 +82,7 @@ bool v4l2Capture::initialize() {
     struct v4l2_streamparm streamparm = {0};
     streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     streamparm.parm.capture.timeperframe.numerator = 1;
-    streamparm.parm.capture.timeperframe.denominator = 30;
+    streamparm.parm.capture.timeperframe.denominator = 15;
     if (ioctl(fd, VIDIOC_S_PARM, &streamparm) == -1) {
         logMessage("Failed to set frame rate: " + std::string(strerror(errno)));
     }
@@ -91,9 +91,7 @@ bool v4l2Capture::initialize() {
     control.id = V4L2_CID_ROTATE;
     control.value = 180;
     if (ioctl(fd, VIDIOC_S_CTRL, &control) == -1) {
-        logMessage("Warning: Failed to set rotation. Error: " + std::string(strerror(errno)));
-    } else {
-        logMessage("Successfully set 180 degree rotation.");
+        logMessage("Failed to set rotation: " + std::string(strerror(errno)));
     }
 
     return initializeMmap();
@@ -150,13 +148,6 @@ bool v4l2Capture::startCapture() {
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (ioctl(fd, VIDIOC_STREAMON, &type) == -1) {
         logMessage("VIDIOC_STREAMON error: " + std::string(strerror(errno)));
-        logMessage("Error details - errno: " + std::to_string(errno) + ", description: " + std::string(strerror(errno)));
-        
-        // Check if the device is busy
-        if (errno == EBUSY) {
-            logMessage("Device is busy. It might be in use by another application.");
-        }
-        
         return false;
     }
 
@@ -195,6 +186,20 @@ bool v4l2Capture::reset() {
     return true;
 }
 
+void v4l2Capture::updateFrameInfo(const v4l2_buffer& buf) {
+    currentFrameInfo.timestamp = buf.timestamp;
+    currentFrameInfo.sequence = buf.sequence;
+    currentFrameInfo.size = buf.bytesused;
+    currentFrameInfo.valid = true;
+}
+
+double v4l2Capture::getFrameDelta(const timeval& previous) const {
+    double current_sec = currentFrameInfo.timestamp.tv_sec + 
+                        (currentFrameInfo.timestamp.tv_usec / 1000000.0);
+    double prev_sec = previous.tv_sec + (previous.tv_usec / 1000000.0);
+    return current_sec - prev_sec;
+}
+
 unsigned char* v4l2Capture::getFrame(size_t& length) {
     memset(&current_buf, 0, sizeof(current_buf));
     current_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -202,7 +207,27 @@ unsigned char* v4l2Capture::getFrame(size_t& length) {
 
     if (ioctl(fd, VIDIOC_DQBUF, &current_buf) == -1) {
         logMessage("VIDIOC_DQBUF error: " + std::string(strerror(errno)));
+        currentFrameInfo.valid = false;
         return nullptr;
+    }
+
+    // Enhanced debugging
+    if (current_buf.sequence % 60 == 0) {  // Log every 60 frames (2 seconds at 30fps)
+        std::string msg = "Buffer info - index: " + std::to_string(current_buf.index) +
+                         ", bytesused: " + std::to_string(current_buf.bytesused) +
+                         ", flags: " + std::to_string(current_buf.flags);
+        logMessage(msg);
+    }
+
+    // Update frame info with timing data
+    updateFrameInfo(current_buf);
+    
+    // Log frame information for debugging
+    if (current_buf.sequence % 300 == 0) {  // Log every 300 frames to avoid spam
+        std::string msg = "Frame sequence: " + std::to_string(current_buf.sequence) + 
+                         ", timestamp: " + std::to_string(current_buf.timestamp.tv_sec) + "." +
+                         std::to_string(current_buf.timestamp.tv_usec);
+        logMessage(msg);
     }
 
     length = current_buf.bytesused;
@@ -226,6 +251,8 @@ unsigned char* v4l2Capture::getFrameWithoutStartCode(size_t& length) {
 void v4l2Capture::releaseFrame() {
     if (ioctl(fd, VIDIOC_QBUF, &current_buf) == -1) {
         logMessage("VIDIOC_QBUF error: " + std::string(strerror(errno)));
+        logMessage("Failed to queue buffer index: " + std::to_string(current_buf.index));
+        return;
     }
 }
 
