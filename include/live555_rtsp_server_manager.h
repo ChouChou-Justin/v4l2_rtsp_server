@@ -16,9 +16,9 @@ public:
     void stopEventLoop();
 
 private:
+    int port_;
     UsageEnvironment* env_;
     v4l2Capture* capture_;
-    int port_;
     RTSPServer* rtspServer_;
     ServerMediaSession* sms_;
     char shouldExit;

@@ -18,12 +18,46 @@ v4l2H264MediaSubsession::~v4l2H264MediaSubsession() {
 
 FramedSource* v4l2H264MediaSubsession::createNewStreamSource(unsigned clientSessionId, unsigned& estBitrate) {
     estBitrate = 1000;
-    logMessage("Creating new stream source for client session: " + std::to_string(clientSessionId));
-    FramedSource* baseSource = v4l2H264FramedSource::createNew(envir(), fCapture);
-    if (baseSource == nullptr) {
-        envir() << "Failed to create v4l2H264FramedSource.\n";
+    
+    if (streamingSessionId != 0 && clientSessionId != streamingSessionId) {
+        logMessage("Another client tried to connect (session " + std::to_string(clientSessionId) + 
+                  "). Current streaming session: " + std::to_string(streamingSessionId));
         return nullptr;
     }
+    
+    // Update or set streaming session ID
+    if (streamingSessionId == 0) {
+        streamingSessionId = clientSessionId;
+    }
+    
+    logMessage("Setting up stream for session: " + std::to_string(clientSessionId));
+    
+    // Ensure capture is stopped and device is reset
+    fCapture->stopCapture();
+    // usleep(50000); // 50ms delay
+    
+    // Perform complete device reset
+    if (!fCapture->reset()) {
+        logMessage("Failed to reset device for new session");
+        return nullptr;
+    }
+    // usleep(50000); // 50ms delay
+    
+    logMessage("Starting capture for client session: " + std::to_string(clientSessionId));
+    if (!fCapture->startCapture()) {
+        logMessage("Failed to start capture for client.");
+        return nullptr;
+    }
+    
+    // usleep(50000); // 50ms delay
+
+    FramedSource* baseSource = v4l2H264FramedSource::createNew(envir(), fCapture);
+    if (baseSource == nullptr) {
+        logMessage("Failed to create v4l2H264FramedSource.");
+        fCapture->stopCapture();
+        return nullptr;
+    }
+    
     return H264VideoStreamDiscreteFramer::createNew(envir(), baseSource);
 }
 
@@ -41,11 +75,25 @@ RTPSink* v4l2H264MediaSubsession::createNewRTPSink(Groupsock* rtpGroupsock, unsi
 }
 
 void v4l2H264MediaSubsession::deleteStream(unsigned clientSessionId, void*& streamToken) {
-    logMessage("Deleting video stream for client session: " + std::to_string(clientSessionId));
-    OnDemandServerMediaSubsession::deleteStream(clientSessionId, streamToken);
-    if (!fCapture->reset()) {
-        envir() << "Failed to reset V4L2 capture device. Attempting to continue without reset.\n";
+    logMessage("Cleaning up session: " + std::to_string(clientSessionId));
+
+    if (clientSessionId == streamingSessionId) {
+        // Stop capture before cleanup
+        fCapture->stopCapture();
+        // usleep(50000); // 50ms delay
+        
+        // Reset streaming session ID
+        streamingSessionId = 0;
+        
+        // Reset device after clearing session
+        if (!fCapture->reset()) {
+            logMessage("Warning: Failed to reset capture device during cleanup");
+        }
     }
+    
+    // usleep(50000); // 50ms delay
+    
+    OnDemandServerMediaSubsession::deleteStream(clientSessionId, streamToken);
 }
 
 char const* v4l2H264MediaSubsession::getAuxSDPLine(RTPSink* rtpSink, FramedSource* inputSource) {

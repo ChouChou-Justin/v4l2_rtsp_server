@@ -35,8 +35,8 @@ void Live555RTSPServerManager::runEventLoop(char* shouldExit) {
 }
 
 void Live555RTSPServerManager::cleanup() {
-    logMessage("Cleaning up RTSP server.");
     Medium::close(rtspServer_);
+    logMessage("Successfully cleaned up RTSP server.");
 }
 
 void Live555RTSPServerManager::stopEventLoop() {

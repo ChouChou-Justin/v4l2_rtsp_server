@@ -15,6 +15,7 @@ protected:
 private:
     virtual void doGetNextFrame();
     v4l2Capture* fCapture;
+    unsigned long fFrameCount; 
 };
 
 #endif // V4L2_H264_FRAMED_SOURCE_H

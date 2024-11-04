@@ -106,9 +106,6 @@ bool v4l2Capture::initialize() {
         return false;
     }
 
-    // Give some time for the device to start streaming
-    usleep(200000);  // 200ms
-
     // Try to extract SPS/PPS
     bool spsPpsSuccess = extractSpsPpsImmediate();
     
@@ -187,28 +184,68 @@ bool v4l2Capture::startCapture() {
 
 bool v4l2Capture::stopCapture() {
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    
+    // First stop streaming
     if (ioctl(fd, VIDIOC_STREAMOFF, &type) == -1) {
         logMessage("VIDIOC_STREAMOFF error: " + std::string(strerror(errno)));
         return false;
     }
+
+    // Dequeue all buffers
+    for (unsigned int i = 0; i < n_buffers; ++i) {
+        struct v4l2_buffer buf = {0};
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        buf.index = i;
+        
+        // Try to dequeue buffer (ignore errors as buffer might not be queued)
+        ioctl(fd, VIDIOC_DQBUF, &buf);
+    }
+
     logMessage("Successfully stop capture.");
     return true;
 }
 
-bool v4l2Capture::reset() {
-    logMessage("Attempting to reset capture device.");
+bool v4l2Capture::reset() {    
+    // Ensure streaming is off
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    ioctl(fd, VIDIOC_STREAMOFF, &type);  // Ignore error
     
-    if (!stopCapture()) {
-        logMessage("Failed to stop capture during reset.");
-        return false;
+    // Clear all buffers
+    for (unsigned int i = 0; i < n_buffers; ++i) {
+        struct v4l2_buffer buf = {0};
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        buf.index = i;
+        ioctl(fd, VIDIOC_DQBUF, &buf);  // Ignore errors
     }
     
-    // Add a small delay to allow the device to settle
-    usleep(100000); // 100ms delay
+    // Unmap all buffers
+    for (unsigned int i = 0; i < n_buffers; ++i) {
+        if (buffers[i].start != MAP_FAILED && buffers[i].start != nullptr) {
+            if (munmap(buffers[i].start, buffers[i].length) == -1) {
+                logMessage("munmap error during reset: " + std::string(strerror(errno)));
+            }
+            buffers[i].start = nullptr;
+            buffers[i].length = 0;
+        }
+    }
     
-    // Instead of re-initializing, just try to start capture again
-    if (!startCapture()) {
-        logMessage("Failed to start capture during reset.");
+    // Request buffers with count 0 to free all buffers
+    struct v4l2_requestbuffers req = {0};
+    req.count = 0;
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_MMAP;
+    if (ioctl(fd, VIDIOC_REQBUFS, &req) == -1) {
+        logMessage("Failed to release buffers: " + std::string(strerror(errno)));
+    }
+    
+    // Wait for device to settle
+    // usleep(50000); // 50ms
+    
+    // Reinitialize mmap
+    if (!initializeMmap()) {
+        logMessage("Failed to reinitialize mmap during reset.");
         return false;
     }
     
@@ -234,13 +271,13 @@ unsigned char* v4l2Capture::getFrame(size_t& length) {
         return nullptr;
     }
 
-    // Enhanced debugging
-    if (current_buf.sequence % 60 == 0) {  // Log every 60 frames (2 seconds at 30fps)
-        std::string msg = "Buffer info - index: " + std::to_string(current_buf.index) +
-                         ", bytesused: " + std::to_string(current_buf.bytesused) +
-                         ", flags: " + std::to_string(current_buf.flags);
-        logMessage(msg);
-    }
+    // // Enhanced debugging
+    // if (current_buf.sequence % 60 == 0) {  // Log every 60 frames (2 seconds at 30fps)
+    //     std::string msg = "Buffer info - index: " + std::to_string(current_buf.index) +
+    //                      ", bytesused: " + std::to_string(current_buf.bytesused) +
+    //                      ", flags: " + std::to_string(current_buf.flags);
+    //     logMessage(msg);
+    // }
 
     // Update frame info with timing data
     updateFrameInfo(current_buf);
@@ -346,8 +383,8 @@ bool v4l2Capture::extractSpsPps() {
 }
 
 bool v4l2Capture::extractSpsPpsImmediate() {
-    const int MAX_IMMEDIATE_ATTEMPTS = 10;  // Increased from 5
-    const int WAIT_MICROSECONDS = 200000;   // Increased to 200ms
+    const int MAX_IMMEDIATE_ATTEMPTS = 10;  
+    // const int WAIT_MICROSECONDS = 100000;   
     
     // Force keyframe request
     struct v4l2_control control;
@@ -357,11 +394,9 @@ bool v4l2Capture::extractSpsPpsImmediate() {
     }
     
     // Wait a bit for the keyframe to be generated
-    usleep(WAIT_MICROSECONDS);
+    // usleep(WAIT_MICROSECONDS);
     
     for (int i = 0; i < MAX_IMMEDIATE_ATTEMPTS; ++i) {
-        logMessage("Attempting immediate SPS/PPS extraction: attempt " + std::to_string(i + 1));
-        
         size_t frameSize;
         unsigned char* frame = getFrame(frameSize);
         
@@ -445,7 +480,7 @@ bool v4l2Capture::extractSpsPpsImmediate() {
         }
         
         // Wait before next attempt
-        usleep(WAIT_MICROSECONDS);
+        // usleep(WAIT_MICROSECONDS);
     }
     
     logMessage("Failed to extract SPS/PPS during immediate initialization");

@@ -46,7 +46,7 @@ public:
     
 
     int getFd() const { return fd; }
-    // New methods for timing information
+    // Timing information
     const FrameInfo& getCurrentFrameInfo() const { return currentFrameInfo; }
     bool isFrameValid() const { return currentFrameInfo.valid; }
     uint32_t getSequence() const { return currentFrameInfo.sequence; }

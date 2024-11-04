@@ -27,12 +27,10 @@ int main(int argc, char** argv) {
     if (!capture->initialize()) {
         *env << "Failed to initialize v4l2 capture.\n";
         exit(1);
-    } else if (!capture->startCapture()) {
-        *env << "Failed to start v4l2 capture.\n";
-        exit(1);
-    } else {
-        logMessage("Successfully initialized and started v4l2 capture.");
     }
+    
+    logMessage("Successfully initialized v4l2 capture.");
+    
 
     // Create and initialize RTSP server manager
     Live555RTSPServerManager rtspManager(env, capture);

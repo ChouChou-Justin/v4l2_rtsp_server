@@ -15,7 +15,6 @@ v4l2H264FramedSource::~v4l2H264FramedSource() {
 }
 
 void v4l2H264FramedSource::doGetNextFrame() {
-    static unsigned long frameCount = 0;
     static struct timeval lastFrameTime = {0, 0};
 
     size_t length;
@@ -46,9 +45,9 @@ void v4l2H264FramedSource::doGetNextFrame() {
     fPresentationTime = lastFrameTime;
     fDurationInMicroseconds = 33333; // ~30fps
 
-    frameCount++;
-    if (frameCount % 30 == 0) {
-        logMessage("Processed " + std::to_string(frameCount) + " frames");
+    fFrameCount++;
+    if (fFrameCount % 30 == 0) {
+        logMessage("Processed " + std::to_string(fFrameCount) + " frames");
     }
 
     fCapture->releaseFrame();
