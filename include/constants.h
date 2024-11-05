@@ -11,7 +11,7 @@
 
 // H.264 encoding settings
 #define VIDEO_BITRATE 1000000    // 1 Mbps
-#define GOP_SIZE 60              // GOP size (2 seconds at 30 fps)
+#define GOP_SIZE 30              // GOP size (1 seconds at 30 fps)
 
 // Frame rate settings
 #define FRAME_RATE_NUMERATOR 1
