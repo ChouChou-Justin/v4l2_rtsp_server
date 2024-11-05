@@ -366,6 +366,17 @@ bool v4l2Capture::extractSpsPps() {
     return false;
 }
 
+void v4l2Capture::clearSpsPps() {
+    delete[] sps;
+    delete[] pps;
+    sps = nullptr;
+    pps = nullptr;
+    spsSize = 0;
+    ppsSize = 0;
+    spsPpsExtracted = false;
+    logMessage("Cleared SPS/PPS data");
+}
+
 bool v4l2Capture::extractSpsPpsImmediate() {
     const int MAX_IMMEDIATE_ATTEMPTS = 10;  
     // const int WAIT_MICROSECONDS = 100000;   

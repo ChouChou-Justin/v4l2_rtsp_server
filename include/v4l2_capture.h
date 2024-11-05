@@ -37,6 +37,7 @@ public:
     void releaseFrame();
 
     bool extractSpsPps();
+    void clearSpsPps();
     bool extractSpsPpsImmediate();
     bool hasSpsPps() const { return spsPpsExtracted; }
     uint8_t* getSPS() const { return sps; }

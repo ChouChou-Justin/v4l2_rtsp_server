@@ -21,6 +21,9 @@ v4l2H264FramedSource::~v4l2H264FramedSource() {
 }
 
 void v4l2H264FramedSource::doGetNextFrame() {
+    // Use static time base for consistent timing
+    static struct timeval lastFrameTime = {0, 0};
+
     size_t length;
     unsigned char* frame = fCapture->getFrameWithoutStartCode(length);
 
@@ -30,43 +33,33 @@ void v4l2H264FramedSource::doGetNextFrame() {
         return;
     }
 
-    // Get V4L2 timestamp
-    const struct timeval& v4l2Time = fCapture->getTimestamp();
-    fPresentationTime = v4l2Time;
-    
-    // Standard frame duration for 30fps
-    fDurationInMicroseconds = 33333;
-
     // Handle frame data
     if (length > fMaxSize) {
         frameFragmentCount++;
         fFrameSize = fMaxSize;
         fNumTruncatedBytes = length - fMaxSize;
-        logMessage("Frame fragmented: " + std::to_string(frameFragmentCount) + 
-                  " remaining bytes: " + std::to_string(fNumTruncatedBytes));
     } else {
         fFrameSize = length;
         fNumTruncatedBytes = 0;
         
-        // Only increment RTP timestamp for new frames, not fragments
         if (frameFragmentCount == 0) {
-            lastRtpTimestamp = rtpTimestamp;
-            
-            // Calculate next timestamp
-            uint32_t nextTimestamp = rtpTimestamp + 3000;
-            rtpTimestamp = nextTimestamp;
-            
-            // Log timing every 30 frames
-            if (fFrameCount % 30 == 0) {
-                double seconds = rtpTimestamp / 90000.0;
-                logMessage("Current playback position: " + std::to_string(seconds) + " seconds");
-            }
+            // Update last timestamp only for complete frames
+            gettimeofday(&lastFrameTime, NULL);
         }
-        frameFragmentCount = 0;
     }
 
     memcpy(fTo, frame, fFrameSize);
-    logTimestampInfo("Processing", v4l2Time);
+    
+    // Use consistent time base
+    fPresentationTime = lastFrameTime;
+    fDurationInMicroseconds = 33333;  // ~30fps
+
+    // Debug logging
+    if (fFrameCount % 30 == 0) {
+        double seconds = fPresentationTime.tv_sec + (fPresentationTime.tv_usec / 1000000.0);
+        logMessage("Current playback position: " + std::to_string(seconds) + " seconds");
+    }
+
     fFrameCount++;
     fCapture->releaseFrame();
     FramedSource::afterGetting(this);

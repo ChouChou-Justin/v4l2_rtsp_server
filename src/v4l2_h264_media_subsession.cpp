@@ -19,37 +19,52 @@ v4l2H264MediaSubsession::~v4l2H264MediaSubsession() {
 FramedSource* v4l2H264MediaSubsession::createNewStreamSource(unsigned clientSessionId, unsigned& estBitrate) {
     estBitrate = 1000;
     
-    if (streamingSessionId != 0 && clientSessionId != streamingSessionId) {
-        logMessage("Another client tried to connect (session " + std::to_string(clientSessionId) + 
-                  "). Current streaming session: " + std::to_string(streamingSessionId));
+    // For initial setup phase
+    if (clientSessionId == 0) {
+        logMessage("Initial setup phase with session 0");
+        // We need basic setup for session 0
+        if (!fCapture->hasSpsPps()) {
+            fCapture->stopCapture();
+            fCapture->reset();
+            fCapture->startCapture();
+            if (!fCapture->extractSpsPps()) {
+                logMessage("Failed to extract SPS/PPS for setup phase");
+                fCapture->stopCapture();
+                return nullptr;
+            }
+        }
+    } else if (streamingSessionId != 0 && clientSessionId != streamingSessionId) {
+        logMessage("Another client tried to connect (session " + std::to_string(clientSessionId));
         return nullptr;
     }
     
-    // Update or set streaming session ID
-    if (streamingSessionId == 0) {
+    // Update session ID for real session
+    if (streamingSessionId == 0 && clientSessionId != 0) {
         streamingSessionId = clientSessionId;
+        
+        // Clear everything and start fresh for real session
+        fCapture->stopCapture();
+        fCapture->clearSpsPps();
+        
+        if (!fCapture->reset()) {
+            logMessage("Failed to reset device for real session");
+            return nullptr;
+        }
+        
+        if (!fCapture->startCapture()) {
+            logMessage("Failed to start capture for real session");
+            return nullptr;
+        }
+
+        // Extract fresh SPS/PPS for real session
+        if (!fCapture->extractSpsPps()) {
+            logMessage("Failed to extract SPS/PPS for real session");
+            fCapture->stopCapture();
+            return nullptr;
+        }
     }
     
     logMessage("Setting up stream for session: " + std::to_string(clientSessionId));
-    
-    // Ensure capture is stopped and device is reset
-    fCapture->stopCapture();
-    // usleep(50000); // 50ms delay
-    
-    // Perform complete device reset
-    if (!fCapture->reset()) {
-        logMessage("Failed to reset device for new session");
-        return nullptr;
-    }
-    // usleep(50000); // 50ms delay
-    
-    logMessage("Starting capture for client session: " + std::to_string(clientSessionId));
-    if (!fCapture->startCapture()) {
-        logMessage("Failed to start capture for client.");
-        return nullptr;
-    }
-    
-    // usleep(50000); // 50ms delay
 
     FramedSource* baseSource = v4l2H264FramedSource::createNew(envir(), fCapture);
     if (baseSource == nullptr) {
@@ -64,9 +79,12 @@ FramedSource* v4l2H264MediaSubsession::createNewStreamSource(unsigned clientSess
 RTPSink* v4l2H264MediaSubsession::createNewRTPSink(Groupsock* rtpGroupsock, unsigned char rtpPayloadTypeIfDynamic, FramedSource* inputSource) {
     logMessage("Creating new RTP sink with payload type: " + std::to_string(rtpPayloadTypeIfDynamic));
     
-    if (!fCapture->extractSpsPps()) {
-        envir() << "Failed to extract SPS and PPS. Cannot create RTP sink.\n";
-        return nullptr;
+    // Ensure we have SPS/PPS
+    if (!fCapture->hasSpsPps()) {
+        if (!fCapture->extractSpsPps()) {
+            envir() << "Failed to extract SPS/PPS. Cannot create RTP sink.\n";
+            return nullptr;
+        }
     }
 
     return H264VideoRTPSink::createNew(envir(), rtpGroupsock, rtpPayloadTypeIfDynamic,
