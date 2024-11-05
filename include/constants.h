@@ -15,7 +15,7 @@
 
 // Frame rate settings
 #define FRAME_RATE_NUMERATOR 1
-#define FRAME_RATE_DENOMINATOR 15  // 30 fps
+#define FRAME_RATE_DENOMINATOR 30  // 30 fps
 
 // Camera settings
 #define ROTATION_DEGREES 180

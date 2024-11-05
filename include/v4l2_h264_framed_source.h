@@ -15,7 +15,13 @@ protected:
 private:
     virtual void doGetNextFrame();
     v4l2Capture* fCapture;
-    unsigned long fFrameCount; 
+    unsigned long fFrameCount{0};  // Initialize to 0
+    uint32_t rtpTimestamp;      // Current RTP timestamp
+    uint32_t lastRtpTimestamp;  // For monitoring jumps
+    unsigned frameFragmentCount; // Track fragments per frame
+    bool isFirstFrame{true};  // New flag for first frame handling
+    // Debug helper
+    void logTimestampInfo(const char* event, const struct timeval& v4l2Time);
 };
 
 #endif // V4L2_H264_FRAMED_SOURCE_H

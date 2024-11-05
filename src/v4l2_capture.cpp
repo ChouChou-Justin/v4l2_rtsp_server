@@ -271,24 +271,8 @@ unsigned char* v4l2Capture::getFrame(size_t& length) {
         return nullptr;
     }
 
-    // // Enhanced debugging
-    // if (current_buf.sequence % 60 == 0) {  // Log every 60 frames (2 seconds at 30fps)
-    //     std::string msg = "Buffer info - index: " + std::to_string(current_buf.index) +
-    //                      ", bytesused: " + std::to_string(current_buf.bytesused) +
-    //                      ", flags: " + std::to_string(current_buf.flags);
-    //     logMessage(msg);
-    // }
-
     // Update frame info with timing data
     updateFrameInfo(current_buf);
-    
-    // Log frame information for debugging
-    if (current_buf.sequence % 300 == 0) {  // Log every 300 frames to avoid spam
-        std::string msg = "Frame sequence: " + std::to_string(current_buf.sequence) + 
-                         ", timestamp: " + std::to_string(current_buf.timestamp.tv_sec) + "." +
-                         std::to_string(current_buf.timestamp.tv_usec);
-        logMessage(msg);
-    }
 
     length = current_buf.bytesused;
     return static_cast<unsigned char*>(buffers[current_buf.index].start);
