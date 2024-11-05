@@ -8,24 +8,122 @@ v4l2H264FramedSource* v4l2H264FramedSource::createNew(UsageEnvironment& env, v4l
 v4l2H264FramedSource::v4l2H264FramedSource(UsageEnvironment& env, v4l2Capture* capture)
     : FramedSource(env), fCapture(capture), 
       rtpTimestamp(0), lastRtpTimestamp(0),
-      frameFragmentCount(0), isFirstFrame(true) {
+      frameFragmentCount(0), isFirstFrame(true),
+      spsPpsState(NORMAL)  {
 
     // Initialize timestamp to stay within first quarter of 32-bit space
     rtpTimestamp = 90000;
     lastRtpTimestamp = rtpTimestamp;
+
+    // Store SPS/PPS for reuse
+    if (capture->hasSpsPps()) {
+        storedSpsSize = capture->getSPSSize();
+        storedPpsSize = capture->getPPSSize();
+        
+        storedSps = new uint8_t[storedSpsSize];
+        storedPps = new uint8_t[storedPpsSize];
+        
+        memcpy(storedSps, capture->getSPS(), storedSpsSize);
+        memcpy(storedPps, capture->getPPS(), storedPpsSize);
+    }
+
     logMessage("Initial RTP timestamp: " + std::to_string(rtpTimestamp));
 }
 
 v4l2H264FramedSource::~v4l2H264FramedSource() {
+    delete[] storedSps;
+    delete[] storedPps;
     logMessage("Successfully destroyed v4l2H264FramedSource.");
 }
 
 void v4l2H264FramedSource::doGetNextFrame() {
-    // Use static time base for consistent timing
-    static struct timeval lastFrameTime = {0, 0};
-
-    size_t length;
-    unsigned char* frame = fCapture->getFrameWithoutStartCode(length);
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    unsigned long currentTime = now.tv_sec * 1000000 + now.tv_usec;
+    
+    static unsigned char* pendingIDR = nullptr;
+    static size_t pendingIDRLength = 0;
+    
+    // First, check if we have a pending frame to analyze
+    size_t length = 0;
+    unsigned char* frame = nullptr;
+    bool isIDR = false;
+    
+    if (spsPpsState == NORMAL && !pendingIDR) {
+        frame = fCapture->getFrameWithoutStartCode(length);
+        if (frame != nullptr && length > 0) {
+            isIDR = (frame[0] & 0x1F) == 5;  // Check if it's an IDR frame
+            
+            // If it's IDR and we need SPS/PPS, store it
+            if (isIDR && (needSpsPps || (currentTime - lastSpsPpsTime > SPS_PPS_INTERVAL))) {
+                pendingIDR = new unsigned char[length];
+                pendingIDRLength = length;
+                memcpy(pendingIDR, frame, length);
+                fCapture->releaseFrame();
+                frame = nullptr;
+            }
+        }
+    }
+    
+    // Handle SPS/PPS/IDR sequence
+    bool needSequence = needSpsPps || 
+                       (currentTime - lastSpsPpsTime > SPS_PPS_INTERVAL) ||
+                       pendingIDR != nullptr;
+    
+    if (needSequence || spsPpsState != NORMAL) {
+        switch (spsPpsState) {
+            case NORMAL:
+                if (storedSps && storedSpsSize <= fMaxSize) {
+                    memcpy(fTo, storedSps, storedSpsSize);
+                    fFrameSize = storedSpsSize;
+                    spsPpsState = SENDING_PPS;
+                    gettimeofday(&fPresentationTime, NULL);
+                    fDurationInMicroseconds = 0;  // Send PPS immediately after
+                    
+                    if (frame) fCapture->releaseFrame();
+                    FramedSource::afterGetting(this);
+                    return;
+                }
+                break;
+                
+            case SENDING_PPS:
+                if (storedPps && storedPpsSize <= fMaxSize) {
+                    memcpy(fTo, storedPps, storedPpsSize);
+                    fFrameSize = storedPpsSize;
+                    spsPpsState = NORMAL;
+                    needSpsPps = false;
+                    lastSpsPpsTime = currentTime;
+                    gettimeofday(&fPresentationTime, NULL);
+                    fDurationInMicroseconds = 0;  // Send IDR immediately after
+                    
+                    FramedSource::afterGetting(this);
+                    return;
+                }
+                break;
+        }
+    }
+    
+    // Handle pending IDR frame first
+    if (pendingIDR) {
+        if (pendingIDRLength <= fMaxSize) {
+            memcpy(fTo, pendingIDR, pendingIDRLength);
+            fFrameSize = pendingIDRLength;
+            delete[] pendingIDR;
+            pendingIDR = nullptr;
+            pendingIDRLength = 0;
+            
+            gettimeofday(&fPresentationTime, NULL);
+            fDurationInMicroseconds = 33333;  // ~30fps
+            
+            FramedSource::afterGetting(this);
+            return;
+        }
+    }
+    
+    // Handle regular frame
+    if (!frame) {
+        frame = fCapture->getFrameWithoutStartCode(length);
+    }
 
     if (frame == nullptr || !fCapture->isFrameValid()) {
         logMessage("WARNING: Invalid frame received");
@@ -33,7 +131,6 @@ void v4l2H264FramedSource::doGetNextFrame() {
         return;
     }
 
-    // Handle frame data
     if (length > fMaxSize) {
         frameFragmentCount++;
         fFrameSize = fMaxSize;
@@ -41,46 +138,17 @@ void v4l2H264FramedSource::doGetNextFrame() {
     } else {
         fFrameSize = length;
         fNumTruncatedBytes = 0;
-        
-        if (frameFragmentCount == 0) {
-            // Update last timestamp only for complete frames
-            gettimeofday(&lastFrameTime, NULL);
-        }
+        frameFragmentCount = 0;
     }
 
     memcpy(fTo, frame, fFrameSize);
     
-    // Use consistent time base
-    fPresentationTime = lastFrameTime;
+    gettimeofday(&fPresentationTime, NULL);
     fDurationInMicroseconds = 33333;  // ~30fps
-
-    // Debug logging
-    if (fFrameCount % 30 == 0) {
-        double seconds = fPresentationTime.tv_sec + (fPresentationTime.tv_usec / 1000000.0);
-        logMessage("Current playback position: " + std::to_string(seconds) + " seconds");
-    }
 
     fFrameCount++;
     fCapture->releaseFrame();
     FramedSource::afterGetting(this);
 }
 
-void v4l2H264FramedSource::logTimestampInfo(const char* event, const struct timeval& v4l2Time) {
-    std::string info = 
-        "Frame " + std::to_string(fFrameCount) +
-        " [" + std::string(event) + "] " +
-        "Fragment: " + std::to_string(frameFragmentCount) +
-        " V4L2: " + std::to_string(v4l2Time.tv_sec) + "." + 
-        std::to_string(v4l2Time.tv_usec).substr(0,6) +
-        " RTP: " + std::to_string(rtpTimestamp);
-    
-    // Check for timestamp irregularities
-    if (!isFirstFrame) {
-        int32_t diff = rtpTimestamp - lastRtpTimestamp;
-        if (diff != 0 && diff != 3000) {
-            info += " WARNING: Irregular RTP increment: " + std::to_string(diff);
-        }
-    }
-    
-    logMessage(info);
-}
+

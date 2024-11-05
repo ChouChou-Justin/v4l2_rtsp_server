@@ -65,15 +65,27 @@ FramedSource* v4l2H264MediaSubsession::createNewStreamSource(unsigned clientSess
     }
     
     logMessage("Setting up stream for session: " + std::to_string(clientSessionId));
-
-    FramedSource* baseSource = v4l2H264FramedSource::createNew(envir(), fCapture);
-    if (baseSource == nullptr) {
+    
+    // Create our custom source
+    v4l2H264FramedSource* source = v4l2H264FramedSource::createNew(envir(), fCapture);
+    if (source == nullptr) {
         logMessage("Failed to create v4l2H264FramedSource.");
         fCapture->stopCapture();
         return nullptr;
     }
     
-    return H264VideoStreamDiscreteFramer::createNew(envir(), baseSource);
+    // Set the flag before wrapping with H264VideoStreamDiscreteFramer
+    source->setNeedSpsPps();
+
+    // Create and return the framer
+    FramedSource* framer = H264VideoStreamDiscreteFramer::createNew(envir(), source);
+    if (framer == nullptr) {
+        Medium::close(source);
+        logMessage("Failed to create H264VideoStreamDiscreteFramer.");
+        return nullptr;
+    }
+    
+    return framer;
 }
 
 RTPSink* v4l2H264MediaSubsession::createNewRTPSink(Groupsock* rtpGroupsock, unsigned char rtpPayloadTypeIfDynamic, FramedSource* inputSource) {
