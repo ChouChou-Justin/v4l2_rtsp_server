@@ -18,6 +18,7 @@ private:
     v4l2Capture* fCapture;
     uint32_t fCurTimestamp{0};  // Current RTP timestamp
     static const uint32_t TIMESTAMP_INCREMENT = 3000;  // 90kHz/30fps
+    struct timeval fInitialTime;  // Base time for all calculations
 
     enum GopState {
         WAITING_FOR_GOP,  // Initial state

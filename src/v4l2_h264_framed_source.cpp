@@ -46,7 +46,8 @@ void v4l2H264FramedSource::doGetNextFrame() {
                 if (storedSps && storedPps) {
                     // We have all components
                     foundFirstGOP = true;
-                    currentGopTimestamp = fCurTimestamp;
+                    // Get initial time once
+                    gettimeofday(&fInitialTime, NULL);
                     gopState = SENDING_SPS;
                     doGetNextFrame();  // Recursive call to start sending
                 }
@@ -61,19 +62,25 @@ void v4l2H264FramedSource::doGetNextFrame() {
         }
     }
     
-    struct timeval now;
-    gettimeofday(&now, NULL);
-    
     if (gopState == SENDING_SPS) {
         // Send SPS
         if (storedSps && storedSpsSize <= fMaxSize) {
             memcpy(fTo, storedSps, storedSpsSize);
             fFrameSize = storedSpsSize;
             gopState = SENDING_PPS;
-            fPresentationTime = now;
+
+            // Calculate presentation time from initial time
+            unsigned long long elapsedMicros = (fCurTimestamp / 90) * 1000;
+            fPresentationTime = fInitialTime;
+            fPresentationTime.tv_sec += elapsedMicros / 1000000;
+            fPresentationTime.tv_usec += elapsedMicros % 1000000;
+            if (fPresentationTime.tv_usec >= 1000000) {
+                fPresentationTime.tv_sec += fPresentationTime.tv_usec / 1000000;
+                fPresentationTime.tv_usec %= 1000000;
+            }
             fDurationInMicroseconds = 0;
-            // Use same timestamp for entire GOP
-            fCurTimestamp = currentGopTimestamp;
+            
+            // Don't increment timestamp for SPS
             
             FramedSource::afterGetting(this);
             return;
@@ -86,18 +93,27 @@ void v4l2H264FramedSource::doGetNextFrame() {
             memcpy(fTo, storedPps, storedPpsSize);
             fFrameSize = storedPpsSize;
             gopState = SENDING_IDR;
-            fPresentationTime = now;
+
+            // Use same presentation time and timestamp as SPS
+            fPresentationTime = fInitialTime;
+            unsigned long long elapsedMicros = (fCurTimestamp / 90) * 1000;
+            fPresentationTime.tv_sec += elapsedMicros / 1000000;
+            fPresentationTime.tv_usec += elapsedMicros % 1000000;
+            if (fPresentationTime.tv_usec >= 1000000) {
+                fPresentationTime.tv_sec += fPresentationTime.tv_usec / 1000000;
+                fPresentationTime.tv_usec %= 1000000;
+            }
             fDurationInMicroseconds = 0;
-            // Use same timestamp for entire GOP
-            fCurTimestamp = currentGopTimestamp;
+            
+            // Don't increment timestamp for PPS
             
             FramedSource::afterGetting(this);
             return;
         }
     }
 
-        static unsigned char* pendingIDR = nullptr;
-        static size_t pendingIDRLength = 0;
+    static unsigned char* pendingIDR = nullptr;
+    static size_t pendingIDRLength = 0;
     
     if (gopState == SENDING_IDR) {
         // Send stored IDR for first GOP or waiting IDR
@@ -107,10 +123,20 @@ void v4l2H264FramedSource::doGetNextFrame() {
         if (idrToSend && idrSize <= fMaxSize) {
             memcpy(fTo, idrToSend, idrSize);
             fFrameSize = idrSize;
-            fPresentationTime = now;
+
+            // Use same presentation time as SPS/PPS
+            fPresentationTime = fInitialTime;
+            unsigned long long elapsedMicros = (fCurTimestamp / 90) * 1000;
+            fPresentationTime.tv_sec += elapsedMicros / 1000000;
+            fPresentationTime.tv_usec += elapsedMicros % 1000000;
+            if (fPresentationTime.tv_usec >= 1000000) {
+                fPresentationTime.tv_sec += fPresentationTime.tv_usec / 1000000;
+                fPresentationTime.tv_usec %= 1000000;
+            }
             fDurationInMicroseconds = 33333;
-            // Use same timestamp for entire GOP
-            fCurTimestamp = currentGopTimestamp;
+
+            // Start incrementing timestamp from here
+            fCurTimestamp += TIMESTAMP_INCREMENT;
             
             if (firstIDRFrame) {
                 delete[] firstIDRFrame;
@@ -128,7 +154,7 @@ void v4l2H264FramedSource::doGetNextFrame() {
             return;
         }
     }
-    
+
     // Handle regular frames
     size_t length;
     unsigned char* frame = fCapture->getFrameWithoutStartCode(length);
@@ -146,8 +172,8 @@ void v4l2H264FramedSource::doGetNextFrame() {
         memcpy(pendingIDR, frame, length);
         fCapture->releaseFrame();
         
-        currentGopTimestamp = fCurTimestamp + TIMESTAMP_INCREMENT;
         gopState = SENDING_SPS;
+        // Don't increment timestamp here, keep current
         doGetNextFrame();
         return;
     }
@@ -162,11 +188,20 @@ void v4l2H264FramedSource::doGetNextFrame() {
         fFrameSize = fMaxSize;
         fNumTruncatedBytes = length - fMaxSize;
     }
+
+    // Calculate presentation time mathematically
+    unsigned long long elapsedMicros = (fCurTimestamp / 90) * 1000;  // Convert from 90kHz to microseconds
+    fPresentationTime = fInitialTime;
+    fPresentationTime.tv_sec += elapsedMicros / 1000000;
+    fPresentationTime.tv_usec += elapsedMicros % 1000000;
+    if (fPresentationTime.tv_usec >= 1000000) {
+        fPresentationTime.tv_sec += fPresentationTime.tv_usec / 1000000;
+        fPresentationTime.tv_usec %= 1000000;
+    }
     
-    fPresentationTime = now;
-    fDurationInMicroseconds = 33333;
-    fCurTimestamp += TIMESTAMP_INCREMENT;
-    
+    fDurationInMicroseconds = 33333;  // 30fps, 33.33ms
+    fCurTimestamp += TIMESTAMP_INCREMENT;  // Simple increment by 3000
+
     fCapture->releaseFrame();
     FramedSource::afterGetting(this);
 }
