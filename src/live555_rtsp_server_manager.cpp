@@ -3,7 +3,7 @@
 #include "logger.h"
 
 Live555RTSPServerManager::Live555RTSPServerManager(UsageEnvironment* env, v4l2Capture* capture, int port)
-    : env_(env), capture_(capture), port_(port), rtspServer_(nullptr), sms_(nullptr), shouldExit(0) {
+    : env_(env), capture_(capture), port_(port), rtspServer_(nullptr), sms_(nullptr) {
 }
 
 Live555RTSPServerManager::~Live555RTSPServerManager() {
@@ -37,10 +37,4 @@ void Live555RTSPServerManager::runEventLoop(char* shouldExit) {
 void Live555RTSPServerManager::cleanup() {
     Medium::close(rtspServer_);
     logMessage("Successfully cleaned up RTSP server.");
-}
-
-void Live555RTSPServerManager::stopEventLoop() {
-    env_->taskScheduler().scheduleDelayedTask(0, [](void* clientData) {
-        *static_cast<char*>(clientData) = 1;
-    }, &shouldExit);
 }

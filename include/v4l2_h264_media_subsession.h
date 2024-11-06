@@ -21,7 +21,6 @@ private:
     v4l2Capture* fCapture;
     char* fAuxSDPLine;
     unsigned streamingSessionId;  
-    unsigned setupSessionId;  
 };
 
 #endif // V4L2_H264_MEDIA_SUBSESSION_H

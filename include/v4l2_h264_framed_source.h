@@ -16,28 +16,30 @@ protected:
 private:
     virtual void doGetNextFrame();
     v4l2Capture* fCapture;
-    unsigned long fFrameCount{0};  // Initialize to 0
-    uint32_t rtpTimestamp;      // Current RTP timestamp
-    uint32_t lastRtpTimestamp;  // For monitoring jumps
-    unsigned frameFragmentCount; // Track fragments per frame
-    bool isFirstFrame{true};  // New flag for first frame handling
-    
-    // SPS/PPS handling
-    enum SpsPpsState {
-        NORMAL,
+    uint32_t fCurTimestamp{0};  // Current RTP timestamp
+    static const uint32_t TIMESTAMP_INCREMENT = 3000;  // 90kHz/30fps
+
+    enum GopState {
+        WAITING_FOR_GOP,  // Initial state
         SENDING_SPS,
-        SENDING_PPS
+        SENDING_PPS,
+        SENDING_IDR,
+        SENDING_FRAMES
     };
-    SpsPpsState spsPpsState{NORMAL};
-    unsigned long lastSpsPpsTime{0};  // Track last SPS/PPS insertion time
-    static const unsigned long SPS_PPS_INTERVAL = 1000000; // 1 second in microseconds
+    GopState gopState{WAITING_FOR_GOP};
+    uint32_t currentGopTimestamp{0};  // Timestamp for current GOP
+    
+    // Buffer for first IDR
+    unsigned char* firstIDRFrame{nullptr};
+    size_t firstIDRSize{0};
+    bool foundFirstGOP{false};
+
     bool needSpsPps{true};  // Flag to indicate if SPS/PPS needed
     uint8_t* storedSps{nullptr};
     uint8_t* storedPps{nullptr};
     unsigned storedSpsSize{0};
     unsigned storedPpsSize{0};
-    
-    void logTimestampInfo(const char* event, const struct timeval& v4l2Time); // Debug helper
+
 };
 
 #endif // V4L2_H264_FRAMED_SOURCE_H

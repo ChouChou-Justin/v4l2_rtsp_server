@@ -13,7 +13,6 @@ public:
     bool initialize();
     void runEventLoop(char* shouldExit);
     void cleanup();
-    void stopEventLoop();
 
 private:
     int port_;
@@ -21,7 +20,6 @@ private:
     v4l2Capture* capture_;
     RTSPServer* rtspServer_;
     ServerMediaSession* sms_;
-    char shouldExit;
 };
 
 #endif // LIVE555_RTSP_SERVER_MANAGER_H

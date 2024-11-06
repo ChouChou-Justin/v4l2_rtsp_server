@@ -7,13 +7,7 @@ v4l2H264FramedSource* v4l2H264FramedSource::createNew(UsageEnvironment& env, v4l
 
 v4l2H264FramedSource::v4l2H264FramedSource(UsageEnvironment& env, v4l2Capture* capture)
     : FramedSource(env), fCapture(capture), 
-      rtpTimestamp(0), lastRtpTimestamp(0),
-      frameFragmentCount(0), isFirstFrame(true),
-      spsPpsState(NORMAL)  {
-
-    // Initialize timestamp to stay within first quarter of 32-bit space
-    rtpTimestamp = 90000;
-    lastRtpTimestamp = rtpTimestamp;
+      gopState(WAITING_FOR_GOP), fCurTimestamp(90000)  {
 
     // Store SPS/PPS for reuse
     if (capture->hasSpsPps()) {
@@ -26,8 +20,6 @@ v4l2H264FramedSource::v4l2H264FramedSource(UsageEnvironment& env, v4l2Capture* c
         memcpy(storedSps, capture->getSPS(), storedSpsSize);
         memcpy(storedPps, capture->getPPS(), storedPpsSize);
     }
-
-    logMessage("Initial RTP timestamp: " + std::to_string(rtpTimestamp));
 }
 
 v4l2H264FramedSource::~v4l2H264FramedSource() {
@@ -37,118 +29,144 @@ v4l2H264FramedSource::~v4l2H264FramedSource() {
 }
 
 void v4l2H264FramedSource::doGetNextFrame() {
+    if (!foundFirstGOP) {
+        // Wait for first complete GOP
+        if (gopState == WAITING_FOR_GOP) {
+            // Try to get an IDR frame
+            size_t length;
+            unsigned char* frame = fCapture->getFrameWithoutStartCode(length);
+            
+            if (frame && length > 0 && (frame[0] & 0x1F) == 5) {
+                // Found IDR, store it
+                firstIDRFrame = new unsigned char[length];
+                firstIDRSize = length;
+                memcpy(firstIDRFrame, frame, length);
+                fCapture->releaseFrame();
+                
+                if (storedSps && storedPps) {
+                    // We have all components
+                    foundFirstGOP = true;
+                    currentGopTimestamp = fCurTimestamp;
+                    gopState = SENDING_SPS;
+                    doGetNextFrame();  // Recursive call to start sending
+                }
+                return;
+            }
+            
+            if (frame) fCapture->releaseFrame();
+            // Keep trying until we get a complete GOP
+            envir().taskScheduler().scheduleDelayedTask(0,
+                (TaskFunc*)FramedSource::afterGetting, this);
+            return;
+        }
+    }
+    
     struct timeval now;
     gettimeofday(&now, NULL);
-    unsigned long currentTime = now.tv_sec * 1000000 + now.tv_usec;
     
-    static unsigned char* pendingIDR = nullptr;
-    static size_t pendingIDRLength = 0;
-    
-    // First, check if we have a pending frame to analyze
-    size_t length = 0;
-    unsigned char* frame = nullptr;
-    bool isIDR = false;
-    
-    if (spsPpsState == NORMAL && !pendingIDR) {
-        frame = fCapture->getFrameWithoutStartCode(length);
-        if (frame != nullptr && length > 0) {
-            isIDR = (frame[0] & 0x1F) == 5;  // Check if it's an IDR frame
-            
-            // If it's IDR and we need SPS/PPS, store it
-            if (isIDR && (needSpsPps || (currentTime - lastSpsPpsTime > SPS_PPS_INTERVAL))) {
-                pendingIDR = new unsigned char[length];
-                pendingIDRLength = length;
-                memcpy(pendingIDR, frame, length);
-                fCapture->releaseFrame();
-                frame = nullptr;
-            }
-        }
-    }
-    
-    // Handle SPS/PPS/IDR sequence
-    bool needSequence = needSpsPps || 
-                       (currentTime - lastSpsPpsTime > SPS_PPS_INTERVAL) ||
-                       pendingIDR != nullptr;
-    
-    if (needSequence || spsPpsState != NORMAL) {
-        switch (spsPpsState) {
-            case NORMAL:
-                if (storedSps && storedSpsSize <= fMaxSize) {
-                    memcpy(fTo, storedSps, storedSpsSize);
-                    fFrameSize = storedSpsSize;
-                    spsPpsState = SENDING_PPS;
-                    gettimeofday(&fPresentationTime, NULL);
-                    fDurationInMicroseconds = 0;  // Send PPS immediately after
-                    
-                    if (frame) fCapture->releaseFrame();
-                    FramedSource::afterGetting(this);
-                    return;
-                }
-                break;
-                
-            case SENDING_PPS:
-                if (storedPps && storedPpsSize <= fMaxSize) {
-                    memcpy(fTo, storedPps, storedPpsSize);
-                    fFrameSize = storedPpsSize;
-                    spsPpsState = NORMAL;
-                    needSpsPps = false;
-                    lastSpsPpsTime = currentTime;
-                    gettimeofday(&fPresentationTime, NULL);
-                    fDurationInMicroseconds = 0;  // Send IDR immediately after
-                    
-                    FramedSource::afterGetting(this);
-                    return;
-                }
-                break;
-        }
-    }
-    
-    // Handle pending IDR frame first
-    if (pendingIDR) {
-        if (pendingIDRLength <= fMaxSize) {
-            memcpy(fTo, pendingIDR, pendingIDRLength);
-            fFrameSize = pendingIDRLength;
-            delete[] pendingIDR;
-            pendingIDR = nullptr;
-            pendingIDRLength = 0;
-            
-            gettimeofday(&fPresentationTime, NULL);
-            fDurationInMicroseconds = 33333;  // ~30fps
+    if (gopState == SENDING_SPS) {
+        // Send SPS
+        if (storedSps && storedSpsSize <= fMaxSize) {
+            memcpy(fTo, storedSps, storedSpsSize);
+            fFrameSize = storedSpsSize;
+            gopState = SENDING_PPS;
+            fPresentationTime = now;
+            fDurationInMicroseconds = 0;
+            // Use same timestamp for entire GOP
+            fCurTimestamp = currentGopTimestamp;
             
             FramedSource::afterGetting(this);
             return;
         }
     }
     
-    // Handle regular frame
-    if (!frame) {
-        frame = fCapture->getFrameWithoutStartCode(length);
+    if (gopState == SENDING_PPS) {
+        // Send PPS
+        if (storedPps && storedPpsSize <= fMaxSize) {
+            memcpy(fTo, storedPps, storedPpsSize);
+            fFrameSize = storedPpsSize;
+            gopState = SENDING_IDR;
+            fPresentationTime = now;
+            fDurationInMicroseconds = 0;
+            // Use same timestamp for entire GOP
+            fCurTimestamp = currentGopTimestamp;
+            
+            FramedSource::afterGetting(this);
+            return;
+        }
     }
 
+        static unsigned char* pendingIDR = nullptr;
+        static size_t pendingIDRLength = 0;
+    
+    if (gopState == SENDING_IDR) {
+        // Send stored IDR for first GOP or waiting IDR
+        unsigned char* idrToSend = firstIDRFrame ? firstIDRFrame : pendingIDR;
+        size_t idrSize = firstIDRFrame ? firstIDRSize : pendingIDRLength;
+        
+        if (idrToSend && idrSize <= fMaxSize) {
+            memcpy(fTo, idrToSend, idrSize);
+            fFrameSize = idrSize;
+            fPresentationTime = now;
+            fDurationInMicroseconds = 33333;
+            // Use same timestamp for entire GOP
+            fCurTimestamp = currentGopTimestamp;
+            
+            if (firstIDRFrame) {
+                delete[] firstIDRFrame;
+                firstIDRFrame = nullptr;
+                firstIDRSize = 0;
+            }
+            if (pendingIDR) {
+                delete[] pendingIDR;
+                pendingIDR = nullptr;
+                pendingIDRLength = 0;
+            }
+            
+            gopState = SENDING_FRAMES;
+            FramedSource::afterGetting(this);
+            return;
+        }
+    }
+    
+    // Handle regular frames
+    size_t length;
+    unsigned char* frame = fCapture->getFrameWithoutStartCode(length);
+    
     if (frame == nullptr || !fCapture->isFrameValid()) {
-        logMessage("WARNING: Invalid frame received");
         handleClosure();
         return;
     }
-
-    if (length > fMaxSize) {
-        frameFragmentCount++;
-        fFrameSize = fMaxSize;
-        fNumTruncatedBytes = length - fMaxSize;
-    } else {
+    
+    // Check for new GOP
+    if (length > 0 && (frame[0] & 0x1F) == 5) {
+        // Store IDR and prepare new GOP
+        pendingIDR = new unsigned char[length];
+        pendingIDRLength = length;
+        memcpy(pendingIDR, frame, length);
+        fCapture->releaseFrame();
+        
+        currentGopTimestamp = fCurTimestamp + TIMESTAMP_INCREMENT;
+        gopState = SENDING_SPS;
+        doGetNextFrame();
+        return;
+    }
+    
+    // Send regular frame
+    if (length <= fMaxSize) {
+        memcpy(fTo, frame, length);
         fFrameSize = length;
         fNumTruncatedBytes = 0;
-        frameFragmentCount = 0;
+    } else {
+        memcpy(fTo, frame, fMaxSize);
+        fFrameSize = fMaxSize;
+        fNumTruncatedBytes = length - fMaxSize;
     }
-
-    memcpy(fTo, frame, fFrameSize);
     
-    gettimeofday(&fPresentationTime, NULL);
-    fDurationInMicroseconds = 33333;  // ~30fps
-
-    fFrameCount++;
+    fPresentationTime = now;
+    fDurationInMicroseconds = 33333;
+    fCurTimestamp += TIMESTAMP_INCREMENT;
+    
     fCapture->releaseFrame();
     FramedSource::afterGetting(this);
 }
-
-
