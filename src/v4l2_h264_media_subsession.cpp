@@ -110,7 +110,6 @@ void v4l2H264MediaSubsession::deleteStream(unsigned clientSessionId, void*& stre
     if (clientSessionId == streamingSessionId) {
         // Stop capture before cleanup
         fCapture->stopCapture();
-        // usleep(50000); // 50ms delay
         
         // Reset streaming session ID
         streamingSessionId = 0;
@@ -120,8 +119,6 @@ void v4l2H264MediaSubsession::deleteStream(unsigned clientSessionId, void*& stre
             logMessage("Warning: Failed to reset capture device during cleanup");
         }
     }
-    
-    // usleep(50000); // 50ms delay
     
     OnDemandServerMediaSubsession::deleteStream(clientSessionId, streamToken);
 }

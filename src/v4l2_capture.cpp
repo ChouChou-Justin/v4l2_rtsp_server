@@ -209,7 +209,7 @@ bool v4l2Capture::stopCapture() {
 bool v4l2Capture::reset() {    
     // Ensure streaming is off
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    ioctl(fd, VIDIOC_STREAMOFF, &type);  // Ignore error
+    ioctl(fd, VIDIOC_STREAMOFF, &type);
     
     // Clear all buffers
     for (unsigned int i = 0; i < n_buffers; ++i) {
@@ -217,7 +217,7 @@ bool v4l2Capture::reset() {
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         buf.memory = V4L2_MEMORY_MMAP;
         buf.index = i;
-        ioctl(fd, VIDIOC_DQBUF, &buf);  // Ignore errors
+        ioctl(fd, VIDIOC_DQBUF, &buf);
     }
     
     // Unmap all buffers
@@ -239,9 +239,6 @@ bool v4l2Capture::reset() {
     if (ioctl(fd, VIDIOC_REQBUFS, &req) == -1) {
         logMessage("Failed to release buffers: " + std::string(strerror(errno)));
     }
-    
-    // Wait for device to settle
-    // usleep(50000); // 50ms
     
     // Reinitialize mmap
     if (!initializeMmap()) {
@@ -378,8 +375,7 @@ void v4l2Capture::clearSpsPps() {
 }
 
 bool v4l2Capture::extractSpsPpsImmediate() {
-    const int MAX_IMMEDIATE_ATTEMPTS = 10;  
-    // const int WAIT_MICROSECONDS = 100000;   
+    const int MAX_IMMEDIATE_ATTEMPTS = 10;    
     
     // Force keyframe request
     struct v4l2_control control;
@@ -387,9 +383,6 @@ bool v4l2Capture::extractSpsPpsImmediate() {
     if (ioctl(fd, VIDIOC_S_CTRL, &control) == -1) {
         logMessage("Failed to force keyframe: " + std::string(strerror(errno)));
     }
-    
-    // Wait a bit for the keyframe to be generated
-    // usleep(WAIT_MICROSECONDS);
     
     for (int i = 0; i < MAX_IMMEDIATE_ATTEMPTS; ++i) {
         size_t frameSize;
@@ -473,9 +466,6 @@ bool v4l2Capture::extractSpsPpsImmediate() {
             logMessage("Successfully extracted SPS and PPS on attempt " + std::to_string(i + 1));
             return true;
         }
-        
-        // Wait before next attempt
-        // usleep(WAIT_MICROSECONDS);
     }
     
     logMessage("Failed to extract SPS/PPS during immediate initialization");

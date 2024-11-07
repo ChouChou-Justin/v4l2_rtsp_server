@@ -46,15 +46,19 @@ void v4l2H264FramedSource::doGetNextFrame() {
                 if (storedSps && storedPps) {
                     // We have all components
                     foundFirstGOP = true;
+
                     // Get initial time once
                     gettimeofday(&fInitialTime, NULL);
                     gopState = SENDING_SPS;
-                    doGetNextFrame();  // Recursive call to start sending
+
+                    // Recursive call to start sending
+                    doGetNextFrame();  
                 }
                 return;
             }
             
             if (frame) fCapture->releaseFrame();
+
             // Keep trying until we get a complete GOP
             envir().taskScheduler().scheduleDelayedTask(0,
                 (TaskFunc*)FramedSource::afterGetting, this);
@@ -79,9 +83,6 @@ void v4l2H264FramedSource::doGetNextFrame() {
                 fPresentationTime.tv_usec %= 1000000;
             }
             fDurationInMicroseconds = 0;
-            
-            // Don't increment timestamp for SPS
-            
             FramedSource::afterGetting(this);
             return;
         }
@@ -104,9 +105,6 @@ void v4l2H264FramedSource::doGetNextFrame() {
                 fPresentationTime.tv_usec %= 1000000;
             }
             fDurationInMicroseconds = 0;
-            
-            // Don't increment timestamp for PPS
-            
             FramedSource::afterGetting(this);
             return;
         }
@@ -198,9 +196,10 @@ void v4l2H264FramedSource::doGetNextFrame() {
         fPresentationTime.tv_sec += fPresentationTime.tv_usec / 1000000;
         fPresentationTime.tv_usec %= 1000000;
     }
-    
-    fDurationInMicroseconds = 33333;  // 30fps, 33.33ms
-    fCurTimestamp += TIMESTAMP_INCREMENT;  // Simple increment by 3000
+
+    // 30fps, 33.33ms
+    fDurationInMicroseconds = 33333;  
+    fCurTimestamp += TIMESTAMP_INCREMENT;  
 
     fCapture->releaseFrame();
     FramedSource::afterGetting(this);
