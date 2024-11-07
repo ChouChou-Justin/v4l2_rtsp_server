@@ -3,6 +3,7 @@
 
 #include <FramedSource.hh>
 #include "v4l2_capture.h"
+#include "constants.h"
 
 class v4l2H264FramedSource : public FramedSource {
 public:
@@ -17,7 +18,7 @@ private:
     virtual void doGetNextFrame();
     v4l2Capture* fCapture;
     uint32_t fCurTimestamp{0};  // Current RTP timestamp
-    static const uint32_t TIMESTAMP_INCREMENT = 3000;  // 90kHz/30fps
+    static const uint32_t TIMESTAMP_INCREMENT = 90000/FRAME_RATE_DENOMINATOR;  // 90kHz/30fps
     struct timeval fInitialTime;  // Base time for all calculations
 
     enum GopState {
